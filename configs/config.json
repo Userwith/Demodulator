@@ -16,10 +16,10 @@
     "num_train_data": 5e3,
     "num_eval_data": 1e3,
     "num_test_data": 1e3,
-    "datasets_path": "../datasets/"
+    "datasets_path": "../datasets/sim"
   },
   "data": {
-    "datasets_path": "../datasets/"
+    "datasets_path": "../datasets/sim"
   },
   "train": {
 
