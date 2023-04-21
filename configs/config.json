@@ -1,0 +1,35 @@
+{
+  "simulation": {
+    "batch_size": 1000,
+    "signal_amp": 1,
+    "infer_amp": 1,
+    "signal_f": 20,
+    "infer_f": 500,
+    "fs": 5000,
+    "signal_phi": 0,
+    "infer_phi": 0.78539816339,
+    "t": 2,
+    "n_scale_max": 0.2,
+    "i_scale_max": 1,
+    "num_n_scale": 10,
+    "num_i_scale": 10,
+    "num_train_data": 5e4,
+    "num_eval_data": 1e3,
+    "num_test_data": 1e4,
+    "train_datasets_path": "../datasets/train/",
+    "eval_datasets_path": "../datasets/eval/",
+    "test_datasets_path": "../datasets/test/"
+  },
+  "data": {
+    "train_datasets_path": "../datasets/train/",
+    "eval_datasets_path": "../datasets/eval/",
+    "test_datasets_path": "../datasets/test/"
+  },
+  "train": {
+
+  },
+  "model": {
+
+  }
+
+}
