@@ -1,5 +1,7 @@
 import json
 import os
+import sys
+
 
 class HParams():
     def __init__(self, **kwargs):
@@ -33,11 +35,22 @@ class HParams():
         return self.__dict__.__repr__()
 
 
-def get_hparams_from_dir():
-    config_save_path = os.path.join("../configs/configs.json")
+def get_hparams():
+    config_save_path = os.path.join("../configs/config.json")
     with open(config_save_path, "r") as f:
         data = f.read()
     config = json.loads(data)
 
     hparams = HParams(**config)
     return hparams
+
+
+def progress_bar(x, progress_max):
+    s = int(x * 100 / progress_max)
+    sys.stdout.write('\r')
+    sys.stdout.write("Generate progress: {}%: ".format(s))
+    sys.stdout.write("|")
+    sys.stdout.write("▋" * s)
+    sys.stdout.write(" " * int(100 - s))
+    sys.stdout.write("|")
+    sys.stdout.flush()
