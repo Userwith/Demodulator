@@ -33,7 +33,7 @@ class WaveDataset(torch.utils.data.Dataset):
             s_waves = raw_data[:, :, 0] if idx == 0 else torch.concatenate((s_waves, raw_data[:, :, 0]), 0)
             i_waves = raw_data[:, :, 1] if idx == 0 else torch.concatenate((i_waves, raw_data[:, :, 1]), 0)
             r_waves = raw_data[:, :, 2] if idx == 0 else torch.concatenate((r_waves, raw_data[:, :, 2]), 0)
-        return s_waves, i_waves, r_waves
+        return s_waves.unsqueeze(1), i_waves.unsqueeze(1), r_waves.unsqueeze(1)
 
 
     def __getitem__(self, idx):
