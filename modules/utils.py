@@ -54,3 +54,7 @@ def progress_bar(x, progress_max):
     sys.stdout.write(" " * int(100 - s))
     sys.stdout.write("|")
     sys.stdout.flush()
+
+def load_filepaths(dataset_root):
+    listdir = os.listdir(dataset_root)
+    return listdir

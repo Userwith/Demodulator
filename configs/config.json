@@ -16,13 +16,41 @@
     "num_train_data": 5e3,
     "num_eval_data": 1e3,
     "num_test_data": 1e3,
-    "datasets_path": "../datasets/sim"
+    "datasets_path": "../datasets/sim/"
   },
   "data": {
-    "datasets_path": "../datasets/sim"
+    "datasets_path": "../datasets/sim/",
+    "batch_size": 1000
   },
   "train": {
-
+    "batch_size": 1000,
+    "n_scale_max": 1,
+    "i_scale_max": 1,
+    "num_n_scale": 5,
+    "num_i_scale": 5,
+    "num_train_data": 5e3,
+    "num_eval_data": 1e3,
+    "num_test_data": 1e3,
+    "log_interval": 10,
+    "eval_interval": 20,
+    "seed": 1234,
+    "epochs": 10000,
+    "learning_rate": 0.0001,
+    "betas": [
+      0.8,
+      0.99
+    ],
+    "eps": 1e-09,
+    "fp16_run": false,
+    "lr_decay": 0.999875,
+    "init_lr_ratio": 1,
+    "warmup_epochs": 0,
+    "c_spec": 45,
+    "c_kl": 1.0,
+    "use_sr": true,
+    "max_speclen": 512,
+    "port": "8001",
+    "keep_ckpts": 3
   },
   "model": {
 
