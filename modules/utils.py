@@ -150,15 +150,15 @@ def clip_grad_value_(parameters, clip_value, norm_type=2):
     return total_norm
 
 
-def summarize(writer, global_step, scalars={}, histograms={}, images={}, audios={}, audio_sampling_rate=22050):
+def summarize(writer, global_step, scalars={}, histograms={}, images={}, waves={}):
     for k, v in scalars.items():
         writer.add_scalar(k, v, global_step)
     for k, v in histograms.items():
         writer.add_histogram(k, v, global_step)
     for k, v in images.items():
         writer.add_image(k, v, global_step, dataformats='HWC')
-    for k, v in audios.items():
-        writer.add_audio(k, v, global_step, audio_sampling_rate)
+    for k, v in waves.items():
+        writer.add_scalar(k, v, global_step)
 
 
 def plot_data_to_numpy(x, y):

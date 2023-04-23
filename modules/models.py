@@ -1,6 +1,10 @@
 import torch
 from torch import nn
 import numpy as np
+from torch.utils.data import DataLoader
+
+from modules import utils
+from modules.data_loader import WaveDataset
 
 
 class CasualDilatedConv1D(nn.Module):
@@ -83,7 +87,7 @@ class StackOfResBlocks(nn.Module):
 
 
 class WaveNet(nn.Module):
-    def __init__(self, in_channels, out_channels, kernel_size, stack_size, layer_size):
+    def __init__(self, in_channels, out_channels, kernel_size, stack_size, layer_size, *args, **kwargs):
         super().__init__()
         self.stack_size = stack_size
         self.layer_size = layer_size
@@ -105,3 +109,27 @@ class WaveNet(nn.Module):
         _, skipConnections = self.stackResBlock(x, skipSize)
         dense = self.denseLayer(skipConnections)
         return dense
+
+class VAEDemodulator(nn.Module):
+    def __init__(self,hps):
+        super().__init__()
+        self.hps = hps
+        self.feature_extractor = WaveNet(hps.in_channels,hps.out_channels,hps.kernel_size,hps.stack_size,hps.layer_size)
+
+    def forward(self,input_waves):
+        return self.feature_extractor(input_waves)
+
+
+if __name__ == "__main__":
+    hps = utils.get_hparams()
+    model = VAEDemodulator(hps.model)
+    train_dataset = WaveDataset(hps.data,"train",i_scale=0,n_scale=0)
+    train_loader = DataLoader(train_dataset, num_workers=10, shuffle=True,
+                             batch_size=1000, pin_memory=True,
+                             drop_last=False)
+    for batch_idx, items in enumerate(train_loader):
+        (s_waves, i_waves, r_waves) = items
+        print(s_waves.shape,i_waves.shape, r_waves.shape)
+        input_waves = torch.concatenate((r_waves,i_waves),dim=1)
+        o = model(input_waves)
+        print(o.shape)

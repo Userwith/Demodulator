@@ -22,7 +22,7 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 from data_loader import WaveDataset
 import utils
-from modules.models import WaveNet
+from modules.models import Demodulator
 
 torch.backends.cudnn.benchmark = True
 global_step = 0
@@ -41,7 +41,7 @@ def main():
     mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
 
 
-def run(rank, n_gpus, hps):
+def run(rank, n_gpus, hps, i_scale, n_scale):
     global global_step
     if rank == 0:
         logger = utils.get_logger(hps.model_dir)
@@ -50,33 +50,29 @@ def run(rank, n_gpus, hps):
         writer_eval = SummaryWriter(log_dir=os.path.join(hps.model_dir, "eval"))
 
     # for pytorch on win, backend use gloo
-    dist.init_process_group(backend=  'gloo' if os.name == 'nt' else 'nccl', init_method='env://', world_size=n_gpus, rank=rank)
+    dist.init_process_group(backend= 'gloo' if os.name == 'nt' else 'nccl', init_method='env://', world_size=n_gpus, rank=rank)
     torch.manual_seed(hps.train.seed)
     torch.cuda.set_device(rank)
-    train_dataset = WaveDataset(hps,"train",0.4,0.4)
+    train_dataset = WaveDataset(hps.data,"train",i_scale,n_scale)
     num_workers = 5 if multiprocessing.cpu_count() > 4 else multiprocessing.cpu_count()
     train_loader = DataLoader(train_dataset, num_workers=num_workers, shuffle=False, pin_memory=True,
                               batch_size=hps.train.batch_size)
     if rank == 0:
-        eval_dataset = WaveDataset(hps,"eval",0.4,0.4)
+        eval_dataset = WaveDataset(hps,"eval",i_scale,n_scale)
         eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
                                  batch_size=100, pin_memory=False,
                                  drop_last=False)
 
-    net = WaveNet(
-        hps.data.filter_length // 2 + 1,
-        hps.train.segment_size // hps.data.hop_length,
-        **hps.model).cuda(rank)
+    net = Demodulator(hps.model).cuda(rank)
     optim = torch.optim.AdamW(
         net.parameters(),
         hps.train.learning_rate,
         betas=hps.train.betas,
         eps=hps.train.eps)
     net = DDP(net, device_ids=[rank])  # , find_unused_parameters=True)
-
     skip_optimizer = False
     try:
-        _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "Net_*.pth"), net,
+        _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_*.pth"), net,
                                                    optim, skip_optimizer)
         epoch_str = max(epoch_str, 1)
         global_step = (epoch_str - 1) * len(train_loader)
@@ -94,16 +90,18 @@ def run(rank, n_gpus, hps):
 
     for epoch in range(epoch_str, hps.train.epochs + 1):
         if rank == 0:
-            train_and_evaluate(rank, epoch, hps, net, optim, scheduler, scaler,
+            train_and_evaluate(rank, epoch, hps, net, optim, scaler,[i_scale,n_scale],
                                [train_loader, eval_loader], logger, [writer, writer_eval])
         else:
-            train_and_evaluate(rank, epoch, hps, net, optim, scheduler, scaler,
+            train_and_evaluate(rank, epoch, hps, net, optim, scaler,[i_scale,n_scale],
                                [train_loader, None], None, None)
         scheduler.step()
 
 
-def train_and_evaluate(rank, epoch, hps, net, optim, scaler, loaders, logger, writers):
+def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, logger, writers):
     train_loader, eval_loader = loaders
+    mse_loss = nn.MSELoss()
+    i_scale, n_scale = scales
     if writers is not None:
         writer, writer_eval = writers
 
@@ -112,23 +110,19 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, loaders, logger, wr
 
     net.train()
     for batch_idx, items in enumerate(train_loader):
-        c, f0, spec, y, spk, lengths, uv = items
-        g = spk.cuda(rank, non_blocking=True)
-        spec, y = spec.cuda(rank, non_blocking=True), y.cuda(rank, non_blocking=True)
-        c = c.cuda(rank, non_blocking=True)
-        f0 = f0.cuda(rank, non_blocking=True)
-        uv = uv.cuda(rank, non_blocking=True)
-        lengths = lengths.cuda(rank, non_blocking=True)
-
+        s_waves, i_waves, r_waves = items
+        s_waves = s_waves.cuda(rank, non_blocking=True)
+        i_waves = i_waves.cuda(rank, non_blocking=True)
+        r_waves = r_waves.cuda(rank, non_blocking=True)
+        input_waves = torch.concatenate((r_waves,i_waves),dim=1)
         with autocast(enabled=hps.train.fp16_run):
-            i_scale_hat = net(c, f0, uv, spec, g=g, c_lengths=lengths,spec_lengths=lengths)
-
+            i_scale_hat, noise_hat = net(input_waves)
+            s_waves_hat = r_waves-i_waves*i_scale_hat-noise_hat
             with autocast(enabled=False):
-                loss_disc, losses_disc_r, losses_disc_g = discriminator_loss(y_d_hat_r, y_d_hat_g)
-                loss_disc_all = loss_disc
+                loss = mse_loss(s_waves,s_waves_hat)
 
         optim.zero_grad()
-        scaler.scale(loss_disc_all).backward()
+        scaler.scale(loss).backward()
         scaler.unscale_(optim)
         grad_norm = utils.clip_grad_value_(net.parameters(), None)
         scaler.step(optim)
@@ -144,29 +138,28 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, loaders, logger, wr
 
                 scalar_dict = {"loss/g/total": loss, "learning_rate": lr,
                                "grad_norm": grad_norm}
-                scalar_dict.update({"loss/g/fm": loss_fm})
-
-                image_dict = {
-                    "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-                    "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
-                    "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                    "all/lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
-                                                          pred_lf0[0, 0, :].detach().cpu().numpy()),
-                    "all/norm_lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
-                                                               norm_lf0[0, 0, :].detach().cpu().numpy())
-                }
+                # image_dict = {
+                #     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
+                #     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
+                #     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
+                #     "all/lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
+                #                                           pred_lf0[0, 0, :].detach().cpu().numpy()),
+                #     "all/norm_lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
+                #                                                norm_lf0[0, 0, :].detach().cpu().numpy())
+                # }
 
                 utils.summarize(
                     writer=writer,
                     global_step=global_step,
-                    images=image_dict,
+                #    images=image_dict,
                     scalars=scalar_dict
                 )
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(hps, net, eval_loader, writer_eval)
                 utils.save_checkpoint(net, optim, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "Net_{}.pth".format(global_step)))
+                                      os.path.join(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_"+str(global_step)+".pth"))
+                keep_ckpts = getattr(hps.train, 'keep_ckpts', 0)
                 if keep_ckpts > 0:
                     utils.clean_checkpoints(path_to_models=hps.model_dir, n_ckpts_to_keep=keep_ckpts, sort_by_time=True)
 
@@ -186,28 +179,25 @@ def evaluate(hps, net, eval_loader, writer_eval):
     wave_dict = {}
     with torch.no_grad():
         for batch_idx, items in enumerate(eval_loader):
-            c, f0, spec, y, spk, _, uv = items
-            g = spk[:1].cuda(0)
-            spec, y = spec[:1].cuda(0), y[:1].cuda(0)
-            c = c[:1].cuda(0)
-            f0 = f0[:1].cuda(0)
-            uv= uv[:1].cuda(0)
-            y_hat = net.module.infer(c, f0, uv, g=g)
-
+            s_waves, i_waves, r_waves = items
+            s_waves = s_waves.cuda(0)
+            i_waves = i_waves.cuda(0)
+            r_waves = r_waves.cuda(0)
+            input_waves = torch.concatenate((r_waves, i_waves), dim=1)
+            signal_waves_hat = net.module.infer(input_waves)
             wave_dict.update({
-                f"gen/pred_signal_wave_{batch_idx}": y_hat[0],
-                f"gt/real_signal_wave_{batch_idx}": y[0]
+                f"net/pred_signal_wave_{batch_idx}": signal_waves_hat[0],
+                f"gt/real_signal_wave_{batch_idx}": s_waves[0]
             })
-        image_dict.update({
-            f"gen/stft": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
-            "gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())
-        })
+        # image_dict.update({
+        #     f"gen/stft": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
+        #     "gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())
+        # })
     utils.summarize(
         writer=writer_eval,
         global_step=global_step,
-        images=image_dict,
-        audios=wave_dict,
-        audio_sampling_rate=hps.data.sampling_rate
+    #    images=image_dict,
+        waves = wave_dict,
     )
     net.train()
 

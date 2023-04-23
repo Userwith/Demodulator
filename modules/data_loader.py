@@ -19,11 +19,11 @@ class WaveDataset(torch.utils.data.Dataset):
         self.data_type = data_type
         self.i_scale = str(int(i_scale*100))
         self.n_scale = str(int(n_scale*100))
-        self.dataset_path = self.hps.data.datasets_path+"i_"+self.i_scale+"_n_"+self.n_scale+"/"+self.data_type+"/"
+        self.dataset_path = self.hps.datasets_path+"i_"+self.i_scale+"_n_"+self.n_scale+"/"+self.data_type+"/"
         self.dataset_files = utils.load_filepaths(
             self.dataset_path) if num_batch == 0 else utils.load_filepaths(
             self.dataset_path)[:num_batch]
-        self.s_wave, self.i_waves, self.r_waves = self._read()
+        self.s_waves, self.i_waves, self.r_waves = self._read()
 
 
     def _read(self):
@@ -37,14 +37,14 @@ class WaveDataset(torch.utils.data.Dataset):
 
 
     def __getitem__(self, idx):
-        return self.s_wave[idx,:],self.i_waves[idx,:],self.r_waves[idx,:]
+        return self.s_waves[idx],self.i_waves[idx],self.r_waves[idx]
 
     def __len__(self):
-        return self.hps.data.batch_size * len(self.dataset_files)
+        return self.hps.batch_size * len(self.dataset_files)
 
 if __name__ == "__main__":
     hps = utils.get_hparams()
-    train_dataset = WaveDataset(hps,"train",i_scale=0,n_scale=0)
+    train_dataset = WaveDataset(hps.data,"train",i_scale=0,n_scale=0)
     train_loader = DataLoader(train_dataset, num_workers=10, shuffle=True,
                              batch_size=1000, pin_memory=True,
                              drop_last=False)
