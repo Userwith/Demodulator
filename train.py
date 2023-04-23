@@ -1,11 +1,13 @@
 import logging
 
-numba_logger = logging.getLogger('numba')
-numba_logger.setLevel(logging.WARNING)
-import multiprocessing
+from modules import utils
+
+import logging
 import time
 
 logging.getLogger('matplotlib').setLevel(logging.WARNING)
+logging.getLogger('numba').setLevel(logging.WARNING)
+import time
 import os
 import json
 import argparse
@@ -20,25 +22,25 @@ import torch.multiprocessing as mp
 import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
-from data_loader import WaveDataset
-import utils
-from modules.models import Demodulator
+from modules.data_loader import WaveDataset
+from modules.models import VAEDemodulator
 
 torch.backends.cudnn.benchmark = True
 global_step = 0
 start_time = time.time()
 
-
+CONFIG_PATH = {"model_dir": "./logs",
+    "config_path": "./configs/config.json"}
 def main():
     """Assume Single Node Multi GPUs Training Only"""
     assert torch.cuda.is_available(), "CPU training is not allowed."
-    hps = utils.get_hparams()
+    hps = utils.get_hparams(CONFIG_PATH["config_path"],CONFIG_PATH["model_dir"])
 
     n_gpus = torch.cuda.device_count()
     os.environ['MASTER_ADDR'] = 'localhost'
     os.environ['MASTER_PORT'] = hps.train.port
 
-    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,))
+    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,0.2, 0.2))
 
 
 def run(rank, n_gpus, hps, i_scale, n_scale):
@@ -54,22 +56,22 @@ def run(rank, n_gpus, hps, i_scale, n_scale):
     torch.manual_seed(hps.train.seed)
     torch.cuda.set_device(rank)
     train_dataset = WaveDataset(hps.data,"train",i_scale,n_scale)
-    num_workers = 5 if multiprocessing.cpu_count() > 4 else multiprocessing.cpu_count()
-    train_loader = DataLoader(train_dataset, num_workers=num_workers, shuffle=False, pin_memory=True,
+    num_workers = 5 if mp.cpu_count() > 4 else mp.cpu_count()
+    train_loader = DataLoader(train_dataset, num_workers=num_workers, shuffle=True, pin_memory=True,
                               batch_size=hps.train.batch_size)
     if rank == 0:
-        eval_dataset = WaveDataset(hps,"eval",i_scale,n_scale)
+        eval_dataset = WaveDataset(hps.data,"eval",i_scale,n_scale)
         eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
-                                 batch_size=100, pin_memory=False,
-                                 drop_last=False)
+                                 batch_size=64, pin_memory=True,
+                                 )
 
-    net = Demodulator(hps.model).cuda(rank)
+    net = VAEDemodulator(hps.model).cuda(rank)
     optim = torch.optim.AdamW(
         net.parameters(),
         hps.train.learning_rate,
         betas=hps.train.betas,
         eps=hps.train.eps)
-    net = DDP(net, device_ids=[rank])  # , find_unused_parameters=True)
+    net = DDP(net, device_ids=[rank], find_unused_parameters=True)
     skip_optimizer = False
     try:
         _, _, _, epoch_str = utils.load_checkpoint(utils.latest_checkpoint_path(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_*.pth"), net,
@@ -105,7 +107,6 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
     if writers is not None:
         writer, writer_eval = writers
 
-    # train_loader.batch_sampler.set_epoch(epoch)
     global global_step
 
     net.train()
@@ -116,8 +117,9 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
         r_waves = r_waves.cuda(rank, non_blocking=True)
         input_waves = torch.concatenate((r_waves,i_waves),dim=1)
         with autocast(enabled=hps.train.fp16_run):
-            i_scale_hat, noise_hat = net(input_waves)
-            s_waves_hat = r_waves-i_waves*i_scale_hat-noise_hat
+            i_scale_hat = net(input_waves)
+            print()
+            s_waves_hat = r_waves-i_waves*i_scale_hat
             with autocast(enabled=False):
                 loss = mse_loss(s_waves,s_waves_hat)
 
@@ -156,7 +158,7 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
                 )
 
             if global_step % hps.train.eval_interval == 0:
-                evaluate(hps, net, eval_loader, writer_eval)
+           #     evaluate(net, eval_loader, writer_eval)
                 utils.save_checkpoint(net, optim, hps.train.learning_rate, epoch,
                                       os.path.join(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_"+str(global_step)+".pth"))
                 keep_ckpts = getattr(hps.train, 'keep_ckpts', 0)
@@ -173,7 +175,7 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
         start_time = now
 
 
-def evaluate(hps, net, eval_loader, writer_eval):
+def evaluate(net, eval_loader, writer_eval):
     net.eval()
     image_dict = {}
     wave_dict = {}

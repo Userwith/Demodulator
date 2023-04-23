@@ -7,6 +7,10 @@ import sys
 
 import torch
 
+MATPLOTLIB_FLAG = False
+
+logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
+logger = logging
 
 class HParams():
     def __init__(self, **kwargs):
@@ -40,13 +44,15 @@ class HParams():
         return self.__dict__.__repr__()
 
 
-def get_hparams():
-    config_save_path = os.path.join("../configs/config.json")
+def get_hparams(config_path, model_dir):
+    config_save_path = os.path.join(config_path)
     with open(config_save_path, "r") as f:
         data = f.read()
     config = json.loads(data)
-
+    if not os.path.exists(model_dir):
+      os.makedirs(model_dir)
     hparams = HParams(**config)
+    hparams.model_dir = model_dir
     return hparams
 
 

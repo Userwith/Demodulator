@@ -115,21 +115,30 @@ class VAEDemodulator(nn.Module):
         super().__init__()
         self.hps = hps
         self.feature_extractor = WaveNet(hps.in_channels,hps.out_channels,hps.kernel_size,hps.stack_size,hps.layer_size)
-
+        self.FFN = nn.ModuleList()
+        self.FFN.append(nn.Linear(800, 1))
+        self.FFN.append(nn.LeakyReLU())
     def forward(self,input_waves):
-        return self.feature_extractor(input_waves)
+        out = self.feature_extractor(input_waves)
+        for layer in self.FFN:
+            out = layer(out)
+        return out
 
+    def infer(self,input_waves):
+        i_scale_hat = self.forward(input_waves)
+        s_waves_hat = r_waves - i_waves * i_scale_hat
+        return s_waves_hat
 
 if __name__ == "__main__":
     hps = utils.get_hparams()
-    model = VAEDemodulator(hps.model)
+    model = VAEDemodulator(hps.model).cuda()
     train_dataset = WaveDataset(hps.data,"train",i_scale=0,n_scale=0)
     train_loader = DataLoader(train_dataset, num_workers=10, shuffle=True,
-                             batch_size=1000, pin_memory=True,
+                             batch_size=512, pin_memory=True,
                              drop_last=False)
     for batch_idx, items in enumerate(train_loader):
         (s_waves, i_waves, r_waves) = items
         print(s_waves.shape,i_waves.shape, r_waves.shape)
-        input_waves = torch.concatenate((r_waves,i_waves),dim=1)
+        input_waves = torch.concatenate((r_waves,i_waves),dim=1).cuda()
         o = model(input_waves)
         print(o.shape)

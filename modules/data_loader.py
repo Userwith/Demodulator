@@ -6,7 +6,7 @@ import torch
 import torch.utils.data
 from torch.utils.data import DataLoader
 
-import utils
+from modules import utils
 
 
 class WaveDataset(torch.utils.data.Dataset):
@@ -44,7 +44,7 @@ class WaveDataset(torch.utils.data.Dataset):
 
 if __name__ == "__main__":
     hps = utils.get_hparams()
-    train_dataset = WaveDataset(hps.data,"train",i_scale=0,n_scale=0)
+    train_dataset = WaveDataset(hps.data,"eval",i_scale=0,n_scale=0)
     train_loader = DataLoader(train_dataset, num_workers=10, shuffle=True,
                              batch_size=1000, pin_memory=True,
                              drop_last=False)

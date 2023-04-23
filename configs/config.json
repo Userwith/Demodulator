@@ -1,6 +1,6 @@
 {
   "simulator": {
-    "batch_size": 1000,
+    "batch_size": 1024,
     "signal_amp": 1,
     "inter_amp": 1,
     "signal_f": 20,
@@ -16,11 +16,11 @@
     "num_train_data": 5e3,
     "num_eval_data": 1e3,
     "num_test_data": 1e3,
-    "datasets_path": "../datasets/sim/"
+    "datasets_path": "./datasets/sim/"
   },
   "data": {
-    "datasets_path": "../datasets/sim/",
-    "batch_size": 1000
+    "datasets_path": "./datasets/sim/",
+    "batch_size": 512
   },
   "train": {
     "batch_size": 1000,
@@ -56,8 +56,8 @@
     "in_channels": 2,
     "kernel_size": 3,
     "out_channels": 1,
-    "stack_size": 1,
-    "layer_size": 1
+    "stack_size": 9,
+    "layer_size": 9
   }
 
 }
