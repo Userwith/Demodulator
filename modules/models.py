@@ -130,6 +130,7 @@ class VAEDemodulator(nn.Module):
         s_waves_hat = r_waves - i_waves * i_scale_hat
         return s_waves_hat
 
+
 if __name__ == "__main__":
     hps = utils.get_hparams()
     model = VAEDemodulator(hps.model).cuda()

@@ -139,27 +139,16 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
 
                 scalar_dict = {"loss/g/total": loss, "learning_rate": lr,
                                "grad_norm": grad_norm}
-                # image_dict = {
-                #     "slice/mel_org": utils.plot_spectrogram_to_numpy(y_mel[0].data.cpu().numpy()),
-                #     "slice/mel_gen": utils.plot_spectrogram_to_numpy(y_hat_mel[0].data.cpu().numpy()),
-                #     "all/mel": utils.plot_spectrogram_to_numpy(mel[0].data.cpu().numpy()),
-                #     "all/lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
-                #                                           pred_lf0[0, 0, :].detach().cpu().numpy()),
-                #     "all/norm_lf0": utils.plot_data_to_numpy(lf0[0, 0, :].cpu().numpy(),
-                #                                                norm_lf0[0, 0, :].detach().cpu().numpy())
-                # }
-
                 utils.summarize(
                     writer=writer,
                     global_step=global_step,
-                #    images=image_dict,
                     scalars=scalar_dict
                 )
 
             if global_step % hps.train.eval_interval == 0:
                 evaluate(net, eval_loader, writer_eval)
                 utils.save_checkpoint(net, optim, hps.train.learning_rate, epoch,
-                                      os.path.join(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_"+str(global_step)+".pth"))
+                                      os.path.join(hps.model_dir, "Net_i_"+str(int(i_scale*100))+"_n_"+str(int(n_scale*100))+"_"+str(global_step)+".pth"))
                 keep_ckpts = getattr(hps.train, 'keep_ckpts', 0)
                 if keep_ckpts > 0:
                     utils.clean_checkpoints(path_to_models=hps.model_dir, n_ckpts_to_keep=keep_ckpts, sort_by_time=True)
@@ -176,7 +165,6 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
 
 def evaluate(net, eval_loader, writer_eval):
     net.eval()
-    image_dict = {}
     wave_dict = {}
     with torch.no_grad():
         for batch_idx, items in enumerate(eval_loader):
@@ -188,19 +176,20 @@ def evaluate(net, eval_loader, writer_eval):
             s_wave = s_waves[0].squeeze(0).cpu().numpy()[:500]
             i_wave = i_waves[0].squeeze(0).cpu().numpy()[:500]
             r_wave = r_waves[0].squeeze(0).cpu().numpy()[:500]
+            ylim = (-2,2)
             wave_dict.update({
                 f"net/pred_signal_wave_{batch_idx}": utils.plot_wave_to_numpy(s_wave_hat),
                 f"gt/real_signal_wave_{batch_idx}": utils.plot_wave_to_numpy(s_wave),
                 f"gt/real_interference_wave_{batch_idx}": utils.plot_wave_to_numpy(i_wave),
                 f"gt/real_raw_wave_{batch_idx}": utils.plot_wave_to_numpy(r_wave),
-                f"compare/signal_c_raw_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,r_wave),
-                f"compare/real_c_pred_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,s_wave_hat)
+                f"compare/signal_c_raw_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,r_wave,ylim),
+                f"compare/real_c_pred_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,s_wave_hat,ylim)
             })
 
     utils.summarize(
         writer=writer_eval,
         global_step=global_step,
-        waves = wave_dict,
+        waves=wave_dict
     )
     net.train()
 

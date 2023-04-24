@@ -111,8 +111,8 @@ def plot_wave_to_numpy(wave):
     fig, ax = plt.subplots(figsize=(10, 2))
     im = ax.plot(wave)
    # plt.colorbar(im, ax=ax)
-    plt.xlabel("amplitude")
-    plt.ylabel("time")
+    plt.xlabel("time")
+    plt.ylabel("amplitude")
     plt.tight_layout()
 
     fig.canvas.draw()
@@ -121,7 +121,7 @@ def plot_wave_to_numpy(wave):
     plt.close()
     return data
 
-def plot_compare_waves_to_numpy(wave_1,wave_2):
+def plot_compare_waves_to_numpy(wave_1,wave_2,ylim):
     global MATPLOTLIB_FLAG
     if not MATPLOTLIB_FLAG:
         import matplotlib
@@ -135,8 +135,9 @@ def plot_compare_waves_to_numpy(wave_1,wave_2):
     fig, ax = plt.subplots(figsize=(10, 2))
     ax.plot(wave_1)
     ax.plot(wave_2, alpha=0.5)
-    plt.xlabel("amplitude")
-    plt.ylabel("time")
+    ax.set_ylim(ylim[0],ylim[1])
+    plt.xlabel("time")
+    plt.ylabel("amplitude")
     plt.tight_layout()
 
     fig.canvas.draw()
@@ -292,7 +293,7 @@ def clean_checkpoints(path_to_models='logs/44k/', n_ckpts_to_keep=2, sort_by_tim
   sort_key = time_key if sort_by_time else name_key
   x_sorted = lambda _x: sorted([f for f in ckpts_files if f.startswith(_x) and not f.endswith('_0.pth')], key=sort_key)
   to_del = [os.path.join(path_to_models, fn) for fn in
-            (x_sorted('G')[:-n_ckpts_to_keep] + x_sorted('D')[:-n_ckpts_to_keep])]
+            (x_sorted('Net')[:-n_ckpts_to_keep])]
   del_info = lambda fn: logger.info(f".. Free up space by deleting ckpt {fn}")
   del_routine = lambda x: [os.remove(x), del_info(x)]
   rs = [del_routine(fn) for fn in to_del]
