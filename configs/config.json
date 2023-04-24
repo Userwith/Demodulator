@@ -58,6 +58,6 @@
     "out_channels": 1,
     "stack_size": 9,
     "layer_size": 9
-  }
-
+  },
+  "model_dir": "./logs"
 }

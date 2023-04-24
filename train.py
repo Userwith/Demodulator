@@ -29,18 +29,17 @@ torch.backends.cudnn.benchmark = True
 global_step = 0
 start_time = time.time()
 
-CONFIG_PATH = {"model_dir": "./logs",
+CONFIG_PATH = {"model_dir": "./logs/",
     "config_path": "./configs/config.json"}
 def main():
     """Assume Single Node Multi GPUs Training Only"""
     assert torch.cuda.is_available(), "CPU training is not allowed."
-    hps = utils.get_hparams(CONFIG_PATH["config_path"],CONFIG_PATH["model_dir"])
-
+    hps = utils.get_hparams(CONFIG_PATH["config_path"])
+    utils.add_model_dir(hps,0.6,0.2)
     n_gpus = torch.cuda.device_count()
-    os.environ['MASTER_ADDR'] = 'localhost'
+    os.environ['MASTER_ADDR'] = '10.147.18.71'
     os.environ['MASTER_PORT'] = hps.train.port
-
-    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,0.2, 0.2))
+    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,0.6, 0.2))
 
 
 def run(rank, n_gpus, hps, i_scale, n_scale):
@@ -62,7 +61,7 @@ def run(rank, n_gpus, hps, i_scale, n_scale):
     if rank == 0:
         eval_dataset = WaveDataset(hps.data,"eval",i_scale,n_scale)
         eval_loader = DataLoader(eval_dataset, num_workers=1, shuffle=False,
-                                 batch_size=64, pin_memory=True,
+                                 batch_size=500, pin_memory=True,
                                  )
 
     net = VAEDemodulator(hps.model).cuda(rank)
@@ -158,7 +157,7 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
                 )
 
             if global_step % hps.train.eval_interval == 0:
-           #     evaluate(net, eval_loader, writer_eval)
+                evaluate(net, eval_loader, writer_eval)
                 utils.save_checkpoint(net, optim, hps.train.learning_rate, epoch,
                                       os.path.join(hps.model_dir, "Net_i"+str(int(i_scale*100))+"_n"+str(int(n_scale*100))+"_"+str(global_step)+".pth"))
                 keep_ckpts = getattr(hps.train, 'keep_ckpts', 0)
@@ -185,20 +184,22 @@ def evaluate(net, eval_loader, writer_eval):
             s_waves = s_waves.cuda(0)
             i_waves = i_waves.cuda(0)
             r_waves = r_waves.cuda(0)
-            input_waves = torch.concatenate((r_waves, i_waves), dim=1)
-            signal_waves_hat = net.module.infer(input_waves)
+            s_wave_hat = net.module.infer(r_waves, i_waves)[0].squeeze(0).cpu().numpy()[:500]
+            s_wave = s_waves[0].squeeze(0).cpu().numpy()[:500]
+            i_wave = i_waves[0].squeeze(0).cpu().numpy()[:500]
+            r_wave = r_waves[0].squeeze(0).cpu().numpy()[:500]
             wave_dict.update({
-                f"net/pred_signal_wave_{batch_idx}": signal_waves_hat[0],
-                f"gt/real_signal_wave_{batch_idx}": s_waves[0]
+                f"net/pred_signal_wave_{batch_idx}": utils.plot_wave_to_numpy(s_wave_hat),
+                f"gt/real_signal_wave_{batch_idx}": utils.plot_wave_to_numpy(s_wave),
+                f"gt/real_interference_wave_{batch_idx}": utils.plot_wave_to_numpy(i_wave),
+                f"gt/real_raw_wave_{batch_idx}": utils.plot_wave_to_numpy(r_wave),
+                f"compare/signal_c_raw_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,r_wave),
+                f"compare/real_c_pred_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,s_wave_hat)
             })
-        # image_dict.update({
-        #     f"gen/stft": utils.plot_spectrogram_to_numpy(y_hat_mel[0].cpu().numpy()),
-        #     "gt/mel": utils.plot_spectrogram_to_numpy(mel[0].cpu().numpy())
-        # })
+
     utils.summarize(
         writer=writer_eval,
         global_step=global_step,
-    #    images=image_dict,
         waves = wave_dict,
     )
     net.train()

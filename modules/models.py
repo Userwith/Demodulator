@@ -124,7 +124,8 @@ class VAEDemodulator(nn.Module):
             out = layer(out)
         return out
 
-    def infer(self,input_waves):
+    def infer(self,r_waves, i_waves):
+        input_waves = torch.concatenate((r_waves, i_waves), dim=1)
         i_scale_hat = self.forward(input_waves)
         s_waves_hat = r_waves - i_waves * i_scale_hat
         return s_waves_hat

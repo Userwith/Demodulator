@@ -44,17 +44,18 @@ class HParams():
         return self.__dict__.__repr__()
 
 
-def get_hparams(config_path, model_dir):
+def get_hparams(config_path):
     config_save_path = os.path.join(config_path)
     with open(config_save_path, "r") as f:
         data = f.read()
     config = json.loads(data)
-    if not os.path.exists(model_dir):
-      os.makedirs(model_dir)
     hparams = HParams(**config)
-    hparams.model_dir = model_dir
     return hparams
 
+def add_model_dir(hparams, i_scale, n_scale):
+    hparams.model_dir = os.path.join(hparams.model_dir,"i_"+str(int(i_scale*100))+"_n_"+str(int(n_scale*100)))
+    if not os.path.exists(hparams.model_dir):
+      os.makedirs(hparams.model_dir)
 
 def progress_bar(x, progress_max):
     s = int(x * 100 / progress_max)
@@ -86,7 +87,6 @@ def get_logger(model_dir, filename="train.log"):
     logger.addHandler(h)
     return logger
 
-
 @torch.jit.script
 def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
     n_channels_int = n_channels[0]
@@ -95,6 +95,55 @@ def fused_add_tanh_sigmoid_multiply(input_a, input_b, n_channels):
     s_act = torch.sigmoid(in_act[:, n_channels_int:, :])
     acts = t_act * s_act
     return acts
+
+
+def plot_wave_to_numpy(wave):
+    global MATPLOTLIB_FLAG
+    if not MATPLOTLIB_FLAG:
+        import matplotlib
+        matplotlib.use("Agg")
+        MATPLOTLIB_FLAG = True
+        mpl_logger = logging.getLogger('matplotlib')
+        mpl_logger.setLevel(logging.WARNING)
+    import matplotlib.pylab as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    im = ax.plot(wave)
+   # plt.colorbar(im, ax=ax)
+    plt.xlabel("amplitude")
+    plt.ylabel("time")
+    plt.tight_layout()
+
+    fig.canvas.draw()
+    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plt.close()
+    return data
+
+def plot_compare_waves_to_numpy(wave_1,wave_2):
+    global MATPLOTLIB_FLAG
+    if not MATPLOTLIB_FLAG:
+        import matplotlib
+        matplotlib.use("Agg")
+        MATPLOTLIB_FLAG = True
+        mpl_logger = logging.getLogger('matplotlib')
+        mpl_logger.setLevel(logging.WARNING)
+    import matplotlib.pylab as plt
+    import numpy as np
+
+    fig, ax = plt.subplots(figsize=(10, 2))
+    ax.plot(wave_1)
+    ax.plot(wave_2, alpha=0.5)
+    plt.xlabel("amplitude")
+    plt.ylabel("time")
+    plt.tight_layout()
+
+    fig.canvas.draw()
+    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep='')
+    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    plt.close()
+    return data
 
 
 def load_checkpoint(checkpoint_path, model, optimizer=None, skip_optimizer=False):
@@ -164,7 +213,7 @@ def summarize(writer, global_step, scalars={}, histograms={}, images={}, waves={
     for k, v in images.items():
         writer.add_image(k, v, global_step, dataformats='HWC')
     for k, v in waves.items():
-        writer.add_scalar(k, v, global_step)
+        writer.add_image(k, v, global_step, dataformats='HWC')
 
 
 def plot_data_to_numpy(x, y):
