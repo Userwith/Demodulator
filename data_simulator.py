@@ -4,7 +4,7 @@ import numpy as np
 import torch
 from modules.utils import get_hparams, progress_bar
 import pandas as pd
-
+from modules.utils import CONFIG_PATH
 
 class Simulator:
 
@@ -43,8 +43,8 @@ class Simulator:
     def raw_wave(self, s_wave, i_wave, i_scales, n_scale):
         return s_wave + torch.mul(i_wave, i_scales) + n_scale * torch.randn(s_wave.shape)
 
-    def _write(self, batch_id, i_scale, n_scale, data_type, s_wave, i_wave, r_wave):
-        data_path = self.datasets_path + "i_" + str(int(100*i_scale.cpu().detach().numpy())) + "_n_" + str(
+    def _write(self, batch_id, i_scale_size, n_scale,  data_type, i_scale, s_wave, i_wave, r_wave):
+        data_path = self.datasets_path + "i_" + str(int(100*i_scale_size.cpu().detach().numpy())) + "_n_" + str(
             int(100*n_scale.cpu().detach().numpy())) + "/" + data_type + "/"
         is_exists = os.path.exists(data_path)
         if not is_exists:
@@ -52,38 +52,40 @@ class Simulator:
         s_wave = s_wave.unsqueeze(2)
         i_wave = i_wave.unsqueeze(2)
         r_wave = r_wave.unsqueeze(2)
+        i_scale = i_scale.expand(-1,r_wave.shape[1]).unsqueeze(2)
         data = torch.concatenate((s_wave, i_wave), dim=2)
         data = torch.concatenate((data, r_wave), dim=2)
+        data = torch.concatenate((data, i_scale), dim=2)
         torch.save(data, data_path + str(batch_id) + ".pth")
 
     def __call__(self, *args, **kwargs):
         for i, idx in zip(self.i_scale_list, range(self.i_scale_list.shape[0])):
             for n, idx2 in zip(self.n_scale_list, range(self.n_scale_list.shape[0])):
-                for batch in range(int(np.floor(self.num_train_data / self.batch_size))):
+                for batch in range(int(np.ceil(self.num_train_data / self.batch_size))):
                     s_wave = self.signal_wave()
                     i_wave = self.inter_wave()
                     i_scale = i * torch.rand((self.batch_size, 1))
                     n_scale = n
                     r_wave = self.raw_wave(s_wave, i_wave, i_scale, n_scale)
-                    self._write(batch, i, n, "train", s_wave, i_wave, r_wave)
-                for batch in range(int(np.floor(self.num_eval_data / self.batch_size))):
+                    self._write(batch, i, n, "train",i_scale, s_wave, i_wave, r_wave)
+                for batch in range(int(np.ceil(self.num_eval_data / self.batch_size))):
                     s_wave = self.signal_wave()
                     i_wave = self.inter_wave()
                     i_scale = i * torch.rand((self.batch_size, 1))
                     n_scale = n
                     r_wave = self.raw_wave(s_wave, i_wave, i_scale, n_scale)
-                    self._write(batch, i, n, "eval", s_wave, i_wave, r_wave)
-                for batch in range(int(np.floor(self.num_test_data / self.batch_size))):
+                    self._write(batch, i, n, "eval",i_scale, s_wave, i_wave, r_wave)
+                for batch in range(int(np.ceil(self.num_test_data / self.batch_size))):
                     s_wave = self.signal_wave()
                     i_wave = self.inter_wave()
                     i_scale = i * torch.rand((self.batch_size, 1))
                     n_scale = n
                     r_wave = self.raw_wave(s_wave, i_wave, i_scale, n_scale)
-                    self._write(batch, i, n, "test", s_wave, i_wave, r_wave)
+                    self._write(batch, i, n, "test",i_scale, s_wave, i_wave, r_wave)
                 progress_bar(idx*self.n_scale_list.shape[0]+idx2+1, self.i_scale_list.shape[0]*self.n_scale_list.shape[0])
 
 
 if __name__ == "__main__":
-    hps = get_hparams()
+    hps = get_hparams(CONFIG_PATH["config_path"])
     sim = Simulator(hps)
     sim()

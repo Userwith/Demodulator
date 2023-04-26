@@ -8,7 +8,8 @@ import sys
 import torch
 
 MATPLOTLIB_FLAG = False
-
+CONFIG_PATH = {"model_dir": "./logs/",
+    "config_path": "./configs/config.json"}
 logging.basicConfig(stream=sys.stdout, level=logging.DEBUG)
 logger = logging
 

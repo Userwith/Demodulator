@@ -24,22 +24,19 @@ from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.cuda.amp import autocast, GradScaler
 from modules.data_loader import WaveDataset
 from modules.models import VAEDemodulator
-
+from modules.utils import CONFIG_PATH
 torch.backends.cudnn.benchmark = True
 global_step = 0
 start_time = time.time()
-
-CONFIG_PATH = {"model_dir": "./logs/",
-    "config_path": "./configs/config.json"}
-def main():
+def main(i_scale, n_scale):
     """Assume Single Node Multi GPUs Training Only"""
     assert torch.cuda.is_available(), "CPU training is not allowed."
     hps = utils.get_hparams(CONFIG_PATH["config_path"])
-    utils.add_model_dir(hps,0.6,0.2)
+    utils.add_model_dir(hps,i_scale,n_scale)
     n_gpus = torch.cuda.device_count()
     os.environ['MASTER_ADDR'] = '10.147.18.71'
     os.environ['MASTER_PORT'] = hps.train.port
-    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,0.6, 0.2))
+    mp.spawn(run, nprocs=n_gpus, args=(n_gpus, hps,i_scale, n_scale))
 
 
 def run(rank, n_gpus, hps, i_scale, n_scale):
@@ -110,17 +107,17 @@ def train_and_evaluate(rank, epoch, hps, net, optim, scaler, scales, loaders, lo
 
     net.train()
     for batch_idx, items in enumerate(train_loader):
-        s_waves, i_waves, r_waves = items
-        s_waves = s_waves.cuda(rank, non_blocking=True)
+        s_waves, i_waves, r_waves, i_scales = items
         i_waves = i_waves.cuda(rank, non_blocking=True)
         r_waves = r_waves.cuda(rank, non_blocking=True)
+        i_scales= i_scales.cuda(rank, non_blocking=True)
+        print(i_scales.shape)
         input_waves = torch.concatenate((r_waves,i_waves),dim=1)
         with autocast(enabled=hps.train.fp16_run):
-            i_scale_hat = net(input_waves)
-            print()
-            s_waves_hat = r_waves-i_waves*i_scale_hat
+            i_scales_hat = net(input_waves)
             with autocast(enabled=False):
-                loss = mse_loss(s_waves,s_waves_hat)
+                print(i_scales.shape,i_scales_hat.shape)
+                loss = mse_loss(i_waves*i_scales,i_waves*i_scales_hat)
 
         optim.zero_grad()
         scaler.scale(loss).backward()
@@ -168,11 +165,12 @@ def evaluate(net, eval_loader, writer_eval):
     wave_dict = {}
     with torch.no_grad():
         for batch_idx, items in enumerate(eval_loader):
-            s_waves, i_waves, r_waves = items
+            s_waves, i_waves, r_waves, i_scales = items
             s_waves = s_waves.cuda(0)
             i_waves = i_waves.cuda(0)
             r_waves = r_waves.cuda(0)
-            s_wave_hat = net.module.infer(r_waves, i_waves)[0].squeeze(0).cpu().numpy()[:500]
+            s_wave_hat, i_scales_hat = net.module.infer(r_waves, i_waves)
+            i_scales_hat = i_scales_hat[0].squeeze(0).cpu().numpy()[:500]
             s_wave = s_waves[0].squeeze(0).cpu().numpy()[:500]
             i_wave = i_waves[0].squeeze(0).cpu().numpy()[:500]
             r_wave = r_waves[0].squeeze(0).cpu().numpy()[:500]
@@ -183,7 +181,8 @@ def evaluate(net, eval_loader, writer_eval):
                 f"gt/real_interference_wave_{batch_idx}": utils.plot_wave_to_numpy(i_wave),
                 f"gt/real_raw_wave_{batch_idx}": utils.plot_wave_to_numpy(r_wave),
                 f"compare/signal_c_raw_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,r_wave,ylim),
-                f"compare/real_c_pred_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,s_wave_hat,ylim)
+                f"compare/real_c_pred_waves_{batch_idx}": utils.plot_compare_waves_to_numpy(s_wave,s_wave_hat,ylim),
+                f"compare/real_c_pred_i_scales_{batch_idx}": utils.plot_compare_waves_to_numpy(i_scales, i_scales_hat, ylim)
             })
 
     utils.summarize(
@@ -195,4 +194,6 @@ def evaluate(net, eval_loader, writer_eval):
 
 
 if __name__ == "__main__":
-    main()
+    for i_s in [0.2,0.4,0.6,0.8]:
+        for n_s in [0.01,0.02,0.03,0.04]:
+            main(i_s,n_s)
